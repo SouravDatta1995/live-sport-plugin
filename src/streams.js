@@ -62,6 +62,7 @@ const SOURCE_PRIORITY = {
   pitsport: 4,
   sportsbite: 4,
   daddylive: 5,
+  roxiestreams: 5,
   vavoo: 6,
   sktech: 7,
   damitv: 8,
@@ -91,8 +92,8 @@ const VERIFY_BODY_MAX_BYTES = 64 * 1024;
 const { lacksPlaylistEvidence } = require('./services/PlaylistEvidence');
 
 const KNOWN_REPLAY_SOURCES = ['replayzone', 'livetv', 'soccerfull', 'basketballvideo', 'nflvideo', 'fullraces', 'hockeyreplays', 'mlblive', 'leaf_recap'];
-const KNOWN_LIVE_SOURCES = ['ppvst', 'daddylive', 'cdnlive', 'streamsports99', 'timstreams', 'streamsports', 'embedindia', 'embedst', 'streamedpk', 'damitv', 'sktech', 'vavoo', 'ak47live', 'leaf', 'scorezone', 'pitsport', 'sportsbite', 'sportzx'];
-const KNOWN_FALLBACKS = ['ppvst', 'daddylive', 'cdnlive', 'streamsports99', 'timstreams', 'streamsports', 'embedindia', 'embedst', 'streamedpk', 'replayzone', 'livetv', 'damitv', 'soccerfull', 'basketballvideo', 'nflvideo', 'fullraces', 'hockeyreplays', 'mlblive', 'leaf_recap', 'sktech', 'vavoo', 'ak47live', 'leaf', 'scorezone', 'pitsport', 'sportsbite', 'sportzx'];
+const KNOWN_LIVE_SOURCES = ['ppvst', 'daddylive', 'cdnlive', 'streamsports99', 'timstreams', 'streamsports', 'embedindia', 'embedst', 'streamedpk', 'damitv', 'sktech', 'vavoo', 'ak47live', 'leaf', 'scorezone', 'pitsport', 'sportsbite', 'sportzx', 'roxiestreams'];
+const KNOWN_FALLBACKS = ['ppvst', 'daddylive', 'cdnlive', 'streamsports99', 'timstreams', 'streamsports', 'embedindia', 'embedst', 'streamedpk', 'replayzone', 'livetv', 'damitv', 'soccerfull', 'basketballvideo', 'nflvideo', 'fullraces', 'hockeyreplays', 'mlblive', 'leaf_recap', 'sktech', 'vavoo', 'ak47live', 'leaf', 'scorezone', 'pitsport', 'sportsbite', 'sportzx', 'roxiestreams'];
 
 // Labeling tables hoisted to module scope: they were allocated per request
 // (handleStream) and per formatChannelStreamTitle call.
@@ -128,7 +129,8 @@ const NICE_NAMES = {
   scorezone: 'ScoreZone',
   pitsport: 'PitSport',
   sportsbite: 'SportsBite',
-  sportzx: 'SportzX'
+  sportzx: 'SportzX',
+  roxiestreams: 'RoxieStreams'
 };
 
 const CHANNEL_TITLE_NICE_NAMES = {
@@ -158,7 +160,8 @@ const CHANNEL_TITLE_NICE_NAMES = {
   scorezone: 'ScoreZone',
   pitsport: 'PitSport',
   sportsbite: 'SportsBite',
-  sportzx: 'SportzX'
+  sportzx: 'SportzX',
+  roxiestreams: 'RoxieStreams'
 };
 
 function isReplaySource(sourceName) {
@@ -327,6 +330,9 @@ async function dispatchToProvider(sourceName, src, match, opts = {}) {
     resStreams = await provider.resolveStream(src.id, match.category, match.title, src);
   } else if (sourceName === 'sportzx') {
     const provider = container.resolve('sportzxProvider');
+    resStreams = await provider.resolveStream(src.id, match.category, match.title, src);
+  } else if (sourceName === 'roxiestreams') {
+    const provider = container.resolve('roxiestreamsProvider');
     resStreams = await provider.resolveStream(src.id, match.category, match.title, src);
   } else if (sourceName.startsWith('yaml_')) {
     const yamlProviders = container.resolve('yamlProviders');
@@ -1879,19 +1885,23 @@ async function handleStream(type, id, config) {
         // bounded playback context for those player requests; arbitrary cookies,
         // authorization and custom token headers must not reach the addon URL.
         const request = {};
-        if (s._source === 'ak47live' || s._source === 'daddylive' || providerName === 'DaddyLive') {
+        if (s._source === 'ak47live' || s._source === 'daddylive' || providerName === 'DaddyLive' || s._source === 'roxiestreams' || providerName === 'RoxieStreams') {
           const headers = verificationHeaders(s);
           const userAgent = manifestUserAgent(headers['User-Agent']);
           if (userAgent) request['User-Agent'] = userAgent;
-          for (const name of ['Referer', 'Origin']) {
+          for (const name of ['Referer', 'Origin', 'Sec-Fetch-Site', 'Sec-Fetch-Mode', 'Sec-Fetch-Dest', 'Accept']) {
             const value = headers[name];
             if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u0020\u007f]/.test(value)) continue;
-            try {
-              const parsed = new URL(value);
-              if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) continue;
-              if (name === 'Origin' && parsed.origin !== value) continue;
+            if (name === 'Referer' || name === 'Origin') {
+              try {
+                const parsed = new URL(value);
+                if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) continue;
+                if (name === 'Origin' && parsed.origin !== value) continue;
+                request[name] = value;
+              } catch (_) {}
+            } else {
               request[name] = value;
-            } catch (_) {}
+            }
           }
         }
         if (Object.keys(request).length) s.behaviorHints.proxyHeaders = { request };
